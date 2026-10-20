@@ -253,6 +253,15 @@ void LayerProtoHelper::writeToProto(const android::BlurRegion region,
     proto->set_top(region.top);
     proto->set_right(region.right);
     proto->set_bottom(region.bottom);
+    if (region.hasPath) {
+        proto->set_has_path(true);
+        proto->set_path_fill_type(region.pathFillType);
+        proto->set_path_base_width(region.pathBaseWidth);
+        proto->set_path_base_height(region.pathBaseHeight);
+        for (float value : region.pathData) {
+            proto->add_path_data(value);
+        }
+    }
 }
 
 void LayerProtoHelper::readFromProto(const perfetto::protos::BlurRegion& proto,
@@ -267,6 +276,11 @@ void LayerProtoHelper::readFromProto(const perfetto::protos::BlurRegion& proto,
     outRegion.top = proto.top();
     outRegion.right = proto.right();
     outRegion.bottom = proto.bottom();
+    outRegion.hasPath = proto.has_path();
+    outRegion.pathFillType = proto.path_fill_type();
+    outRegion.pathBaseWidth = proto.path_base_width();
+    outRegion.pathBaseHeight = proto.path_base_height();
+    outRegion.pathData.assign(proto.path_data().begin(), proto.path_data().end());
 }
 
 LayerProtoFromSnapshotGenerator& LayerProtoFromSnapshotGenerator::with(

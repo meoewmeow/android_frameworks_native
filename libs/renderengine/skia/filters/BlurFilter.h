@@ -18,6 +18,7 @@
 
 #include <SkCanvas.h>
 #include <SkImage.h>
+#include <SkPath.h>
 #include <SkRuntimeEffect.h>
 #include <SkSurface.h>
 
@@ -59,6 +60,12 @@ public:
                                 const uint32_t blurRadius, const float zoomScale,
                                 const float blurAlpha, const SkRect& blurRect,
                                 sk_sp<SkImage> blurredImage, sk_sp<SkImage> input);
+
+    // Draws the same backdrop blur clipped to an arbitrary path.
+    void drawBlurRegion(SkCanvas* canvas, const SkPath& effectRegion,
+                        const uint32_t blurRadius, const float zoomScale,
+                        const float blurAlpha, const SkRect& blurRect,
+                        sk_sp<SkImage> blurredImage, sk_sp<SkImage> input);
 
     float getMaxCrossFadeRadius() const;
 

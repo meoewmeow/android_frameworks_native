@@ -17,6 +17,7 @@
 #define LOG_TAG "LayerState"
 
 #include <cinttypes>
+#include <cmath>
 
 #include <android/gui/ISurfaceComposerClient.h>
 #include <android/native_window.h>
@@ -56,6 +57,7 @@ using gui::FocusRequest;
 using gui::WindowInfoHandle;
 
 namespace {
+constexpr uint32_t kMaxBlurRegionPathDataFloats = 16384;
 
 bool isSameSurfaceControl(const sp<SurfaceControl>& lhs, const sp<SurfaceControl>& rhs) {
     if (lhs == rhs) {
@@ -203,6 +205,19 @@ status_t layer_state_t::write(Parcel& output) const
         SAFE_PARCEL(output.writeInt32, region.top);
         SAFE_PARCEL(output.writeInt32, region.right);
         SAFE_PARCEL(output.writeInt32, region.bottom);
+        if (what & eBlurRegionPathDataChanged) {
+            SAFE_PARCEL(output.writeBool, region.hasPath);
+            if (region.hasPath) {
+                SAFE_PARCEL(output.writeUint32, region.pathFillType);
+                SAFE_PARCEL(output.writeFloat, region.pathBaseWidth);
+                SAFE_PARCEL(output.writeFloat, region.pathBaseHeight);
+                SAFE_PARCEL(output.writeUint32,
+                            static_cast<uint32_t>(region.pathData.size()));
+                for (float value : region.pathData) {
+                    SAFE_PARCEL(output.writeFloat, value);
+                }
+            }
+        }
     }
 
     SAFE_PARCEL(output.write, stretchEffect);
@@ -249,6 +264,7 @@ status_t layer_state_t::read(const Parcel& input)
     SAFE_PARCEL(input.readNullableStrongBinder, &surface);
     SAFE_PARCEL(input.readInt32, &layerId);
     SAFE_PARCEL(input.readUint64, &what);
+    const bool hasBlurRegionPathData = (what & eBlurRegionPathDataChanged) != 0;
     SAFE_PARCEL(input.readFloat, &x);
     SAFE_PARCEL(input.readFloat, &y);
     SAFE_PARCEL(input.readInt32, &z);
@@ -364,8 +380,31 @@ status_t layer_state_t::read(const Parcel& input)
         SAFE_PARCEL(input.readInt32, &region.top);
         SAFE_PARCEL(input.readInt32, &region.right);
         SAFE_PARCEL(input.readInt32, &region.bottom);
+        if (hasBlurRegionPathData) {
+            SAFE_PARCEL(input.readBool, &region.hasPath);
+            if (region.hasPath) {
+                SAFE_PARCEL(input.readUint32, &region.pathFillType);
+                if (region.pathFillType > 1) return BAD_VALUE;
+                SAFE_PARCEL(input.readFloat, &region.pathBaseWidth);
+                SAFE_PARCEL(input.readFloat, &region.pathBaseHeight);
+                if (!std::isfinite(region.pathBaseWidth) || region.pathBaseWidth <= 0.0f ||
+                        !std::isfinite(region.pathBaseHeight) || region.pathBaseHeight <= 0.0f) {
+                    return BAD_VALUE;
+                }
+                uint32_t pathDataCount = 0;
+                SAFE_PARCEL(input.readUint32, &pathDataCount);
+                if (pathDataCount > kMaxBlurRegionPathDataFloats) return BAD_VALUE;
+                region.pathData.resize(pathDataCount);
+                for (float& value : region.pathData) {
+                    SAFE_PARCEL(input.readFloat, &value);
+                    if (!std::isfinite(value)) return BAD_VALUE;
+                }
+                if (region.pathData.empty()) return BAD_VALUE;
+            }
+        }
         blurRegions.push_back(region);
     }
+    what &= ~eBlurRegionPathDataChanged;
 
     SAFE_PARCEL(input.read, stretchEffect);
     SAFE_PARCEL(input.readParcelable, &edgeExtensionParameters);
@@ -648,6 +687,11 @@ void layer_state_t::merge(const layer_state_t& other) {
     }
     if (other.what & eBlurRegionsChanged) {
         what |= eBlurRegionsChanged;
+        if (other.what & eBlurRegionPathDataChanged) {
+            what |= eBlurRegionPathDataChanged;
+        } else {
+            what &= ~eBlurRegionPathDataChanged;
+        }
         blurRegions = other.blurRegions;
     }
     if (other.what & eRelativeLayerChanged) {

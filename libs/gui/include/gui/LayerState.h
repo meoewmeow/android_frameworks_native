@@ -259,6 +259,9 @@ struct layer_state_t {
         eStopLayerChanged = 0x1000000'00000000,
         eBackgroundBlurScaleChanged = 0x2000000'00000000,
         eSystemContentPriorityChanged = 0x4000000'00000000,
+        // Parcel-format marker. Older clients omit the optional custom path payload for blur
+        // regions, so this bit is only set by clients that write that payload.
+        eBlurRegionPathDataChanged = 0x8000000'00000000,
     };
 
     layer_state_t();

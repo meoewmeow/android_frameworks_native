@@ -58,6 +58,7 @@
 #include <include/gpu/ganesh/GrTypes.h>
 #include <include/gpu/ganesh/SkSurfaceGanesh.h>
 #include <pthread.h>
+#include <utility>
 #include <src/core/SkTraceEventCommon.h>
 #include <sync/sync.h>
 #include <ui/BlurRegion.h>
@@ -742,6 +743,84 @@ static SkRRect getBlurRRect(const BlurRegion& region) {
     return roundedRect;
 }
 
+static SkPath getBlurPath(const BlurRegion& region) {
+    SkPath path;
+    if (!region.hasPath) {
+        path.addRRect(getBlurRRect(region));
+        return path;
+    }
+    if (region.pathFillType > 1 || !std::isfinite(region.pathBaseWidth) ||
+            !std::isfinite(region.pathBaseHeight) || region.pathBaseWidth <= 0.0f ||
+            region.pathBaseHeight <= 0.0f || region.pathData.empty()) {
+        return path;
+    }
+
+    path.setFillType(static_cast<SkPathFillType>(region.pathFillType));
+    size_t offset = 0;
+    while (offset < region.pathData.size()) {
+        const float verbValue = region.pathData[offset++];
+        if (!std::isfinite(verbValue) || verbValue != std::floor(verbValue)) return SkPath();
+        const int verb = static_cast<int>(verbValue);
+        int pointCount = 0;
+        switch (static_cast<SkPathVerb>(verb)) {
+            case SkPathVerb::kMove:
+                pointCount = 2;
+                break;
+            case SkPathVerb::kLine:
+                pointCount = 4;
+                break;
+            case SkPathVerb::kQuad:
+                pointCount = 6;
+                break;
+            case SkPathVerb::kConic:
+                pointCount = 7;
+                break;
+            case SkPathVerb::kCubic:
+                pointCount = 8;
+                break;
+            case SkPathVerb::kClose:
+                path.close();
+                continue;
+            default:
+                return SkPath();
+        }
+        if (offset + pointCount > region.pathData.size()) return SkPath();
+        for (int i = 0; i < pointCount; i++) {
+            if (!std::isfinite(region.pathData[offset + i])) return SkPath();
+        }
+        switch (static_cast<SkPathVerb>(verb)) {
+            case SkPathVerb::kMove:
+                path.moveTo(region.pathData[offset], region.pathData[offset + 1]);
+                break;
+            case SkPathVerb::kLine:
+                path.lineTo(region.pathData[offset + 2], region.pathData[offset + 3]);
+                break;
+            case SkPathVerb::kQuad:
+                path.quadTo(region.pathData[offset + 2], region.pathData[offset + 3],
+                            region.pathData[offset + 4], region.pathData[offset + 5]);
+                break;
+            case SkPathVerb::kConic:
+                path.conicTo(region.pathData[offset + 2], region.pathData[offset + 3],
+                             region.pathData[offset + 4], region.pathData[offset + 5],
+                             region.pathData[offset + 6]);
+                break;
+            case SkPathVerb::kCubic:
+                path.cubicTo(region.pathData[offset + 2], region.pathData[offset + 3],
+                             region.pathData[offset + 4], region.pathData[offset + 5],
+                             region.pathData[offset + 6], region.pathData[offset + 7]);
+                break;
+            case SkPathVerb::kClose:
+                break;
+        }
+        offset += pointCount;
+    }
+    path.transform(SkMatrix::Scale(
+            (region.right - region.left) / region.pathBaseWidth,
+            (region.bottom - region.top) / region.pathBaseHeight));
+    path.offset(region.left, region.top);
+    return path;
+}
+
 // Arbitrary default margin which should be close enough to zero.
 constexpr float kDefaultMargin = 0.0001f;
 static bool equalsWithinMargin(float expected, float value, float margin = kDefaultMargin) {
@@ -853,7 +932,7 @@ void SkiaRenderEngine::drawLayersInternal(
                 layer.backgroundBlurRadius < mBlurFilter->getMaxCrossFadeRadius()) {
                 requiresCompositionLayer = true;
             }
-            for (auto region : layer.blurRegions) {
+            for (const auto& region : layer.blurRegions) {
                 if (region.blurRadius < mBlurFilter->getMaxCrossFadeRadius()) {
                     requiresCompositionLayer = true;
                 }
@@ -977,7 +1056,7 @@ void SkiaRenderEngine::drawLayersInternal(
                         layer.backgroundBlurRadius < mBlurFilter->getMaxCrossFadeRadius()) {
                         requiresCrossFadeWithBlurInput = true;
                     }
-                    for (auto region : layer.blurRegions) {
+                    for (const auto& region : layer.blurRegions) {
                         if (region.blurRadius < mBlurFilter->getMaxCrossFadeRadius()) {
                             requiresCrossFadeWithBlurInput = true;
                         }
@@ -1005,7 +1084,7 @@ void SkiaRenderEngine::drawLayersInternal(
                 }
 
                 canvas->concat(getSkM44(layer.blurRegionTransform).asM33());
-                for (auto region : layer.blurRegions) {
+                for (const auto& region : layer.blurRegions) {
                     if (cachedBlurs[region.blurRadius] == nullptr) {
                         SFTRACE_NAME("BlurRegion");
                         cachedBlurs[region.blurRadius] =
@@ -1013,9 +1092,15 @@ void SkiaRenderEngine::drawLayersInternal(
                                                       blurRect);
                     }
 
-                    mBlurFilter->drawBlurRegion(canvas, getBlurRRect(region), region.blurRadius,
-                                                1.0f, region.alpha, blurRect,
-                                                cachedBlurs[region.blurRadius], blurInput);
+                    if (region.hasPath) {
+                        mBlurFilter->drawBlurRegion(canvas, getBlurPath(region),
+                                region.blurRadius, 1.0f, region.alpha, blurRect,
+                                cachedBlurs[region.blurRadius], blurInput);
+                    } else {
+                        mBlurFilter->drawBlurRegion(canvas, getBlurRRect(region),
+                                region.blurRadius, 1.0f, region.alpha, blurRect,
+                                cachedBlurs[region.blurRadius], blurInput);
+                    }
                 }
             }
         }

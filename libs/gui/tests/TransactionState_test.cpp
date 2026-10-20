@@ -263,6 +263,48 @@ TEST(TransactionStateTest, parcelLayerState) {
     EXPECT_EQ(state, parcelledState);
 };
 
+TEST(TransactionStateTest, parcelBlurRegionPathData) {
+    ComposerState state = createComposerStateForTest(0);
+    state.state.what = layer_state_t::eBlurRegionsChanged |
+            layer_state_t::eBlurRegionPathDataChanged;
+    BlurRegion region{.blurRadius = 24,
+                      .alpha = 1.0f,
+                      .left = 10,
+                      .top = 20,
+                      .right = 110,
+                      .bottom = 60,
+                      .hasPath = true,
+                      .pathFillType = 0,
+                      .pathBaseWidth = 100.0f,
+                      .pathBaseHeight = 40.0f,
+                      .pathData = {0.0f, 1.0f, 2.0f, 1.0f, 2.0f, 3.0f, 4.0f}};
+    state.state.blurRegions.push_back(region);
+
+    Parcel parcel;
+    ASSERT_EQ(NO_ERROR, state.write(parcel));
+    parcel.setDataPosition(0);
+    ComposerState parcelledState;
+    ASSERT_EQ(NO_ERROR, parcelledState.read(parcel));
+    EXPECT_EQ(layer_state_t::eBlurRegionsChanged, parcelledState.state.what);
+    ASSERT_EQ(1u, parcelledState.state.blurRegions.size());
+    EXPECT_EQ(region, parcelledState.state.blurRegions[0]);
+}
+
+TEST(TransactionStateTest, parcelLegacyBlurRegionWithoutPathMarker) {
+    ComposerState state = createComposerStateForTest(0);
+    state.state.what = layer_state_t::eBlurRegionsChanged;
+    state.state.blurRegions.push_back(
+            BlurRegion{.blurRadius = 24, .alpha = 1.0f, .left = 10, .top = 20,
+                       .right = 110, .bottom = 60});
+
+    Parcel parcel;
+    ASSERT_EQ(NO_ERROR, state.write(parcel));
+    parcel.setDataPosition(0);
+    ComposerState parcelledState;
+    ASSERT_EQ(NO_ERROR, parcelledState.read(parcel));
+    EXPECT_EQ(state, parcelledState);
+}
+
 TEST(TransactionStateTest, parcelEmptyState) {
     TransactionState state;
     Parcel p;

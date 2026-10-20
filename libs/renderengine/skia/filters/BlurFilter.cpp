@@ -76,23 +76,25 @@ float BlurFilter::getMaxCrossFadeRadius() const {
     return mMaxCrossFadeRadius;
 }
 
-void BlurFilter::drawBlurRegion(SkCanvas* canvas, const SkRRect& effectRegion,
-                                const uint32_t blurRadius, const float zoomScale,
-                                const float blurAlpha,
-                                const SkRect& blurRect, sk_sp<SkImage> blurredImage,
-                                sk_sp<SkImage> input) {
+template <typename DrawEffectRegion>
+static void drawBlurRegionImpl(SkCanvas* canvas, const uint32_t blurRadius,
+                               const float zoomScale, const float blurAlpha,
+                               const SkRect& blurRect, sk_sp<SkImage> blurredImage,
+                               sk_sp<SkImage> input, const float maxCrossFadeRadius,
+                               const sk_sp<SkRuntimeEffect>& mixEffect,
+                               DrawEffectRegion drawEffectRegion) {
     SFTRACE_CALL();
 
     SkPaint paint;
     paint.setAlphaf(blurAlpha);
 
-    auto blurMatrix = getShaderTransform(canvas, blurRect, kInverseInputScale, zoomScale);
+    auto blurMatrix = getShaderTransform(canvas, blurRect, BlurFilter::kInverseInputScale, zoomScale);
 
     SkSamplingOptions linearSampling(SkFilterMode::kLinear, SkMipmapMode::kNone);
     const auto blurShader = blurredImage->makeShader(SkTileMode::kMirror, SkTileMode::kMirror,
                                                      linearSampling, &blurMatrix);
 
-    if (blurRadius < mMaxCrossFadeRadius) {
+    if (blurRadius < maxCrossFadeRadius) {
         LOG_ALWAYS_FATAL_IF(!input);
 
         // For sampling Skia's API expects the inverse of what logically seems appropriate. In this
@@ -108,28 +110,53 @@ void BlurFilter::drawBlurRegion(SkCanvas* canvas, const SkRRect& effectRegion,
             inputMatrix.preScale(zoomScale, zoomScale);
         }
 
-        SkRuntimeShaderBuilder blurBuilder(mMixEffect);
+        SkRuntimeShaderBuilder blurBuilder(mixEffect);
         blurBuilder.child("blurredInput") = blurShader;
         blurBuilder.child("originalInput") =
                 input->makeShader(SkTileMode::kMirror, SkTileMode::kMirror, linearSampling,
                                   inputMatrix);
 
-        blurBuilder.uniform("mixFactor") = blurRadius / mMaxCrossFadeRadius;
+        blurBuilder.uniform("mixFactor") = blurRadius / maxCrossFadeRadius;
 
         paint.setShader(blurBuilder.makeShader());
     } else {
         paint.setShader(blurShader);
     }
 
-    if (effectRegion.isRect()) {
-        if (blurAlpha == 1.0f) {
-            paint.setBlendMode(SkBlendMode::kSrc);
-        }
-        canvas->drawRect(effectRegion.rect(), paint);
-    } else {
-        paint.setAntiAlias(true);
-        canvas->drawRRect(effectRegion, paint);
-    }
+    drawEffectRegion(paint);
+}
+
+void BlurFilter::drawBlurRegion(SkCanvas* canvas, const SkRRect& effectRegion,
+                                const uint32_t blurRadius, const float zoomScale,
+                                const float blurAlpha, const SkRect& blurRect,
+                                sk_sp<SkImage> blurredImage, sk_sp<SkImage> input) {
+    drawBlurRegionImpl(canvas, blurRadius, zoomScale, blurAlpha, blurRect,
+                       std::move(blurredImage), std::move(input), mMaxCrossFadeRadius,
+                       mMixEffect, [&](SkPaint& paint) {
+                           if (effectRegion.isRect()) {
+                               if (blurAlpha == 1.0f) paint.setBlendMode(SkBlendMode::kSrc);
+                               canvas->drawRect(effectRegion.rect(), paint);
+                           } else {
+                               paint.setAntiAlias(true);
+                               canvas->drawRRect(effectRegion, paint);
+                           }
+                       });
+}
+
+void BlurFilter::drawBlurRegion(SkCanvas* canvas, const SkPath& effectRegion,
+                                const uint32_t blurRadius, const float zoomScale,
+                                const float blurAlpha, const SkRect& blurRect,
+                                sk_sp<SkImage> blurredImage, sk_sp<SkImage> input) {
+    drawBlurRegionImpl(canvas, blurRadius, zoomScale, blurAlpha, blurRect,
+                       std::move(blurredImage), std::move(input), mMaxCrossFadeRadius,
+                       mMixEffect, [&](SkPaint& paint) {
+                           SkRect rect;
+                           if (effectRegion.isRect(&rect) && blurAlpha == 1.0f) {
+                               paint.setBlendMode(SkBlendMode::kSrc);
+                           }
+                           paint.setAntiAlias(true);
+                           canvas->drawPath(effectRegion, paint);
+                       });
 }
 
 } // namespace skia

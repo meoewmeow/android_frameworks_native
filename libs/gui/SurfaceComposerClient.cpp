@@ -1571,6 +1571,7 @@ SurfaceComposerClient::Transaction& SurfaceComposerClient::Transaction::setBlurR
         return *this;
     }
     s->what |= layer_state_t::eBlurRegionsChanged;
+    s->what |= layer_state_t::eBlurRegionPathDataChanged;
     s->blurRegions = blurRegions;
     return *this;
 }

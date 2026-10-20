@@ -19,6 +19,7 @@
 #include <inttypes.h>
 #include <iosfwd>
 #include <iostream>
+#include <vector>
 
 #include <math/HashCombine.h>
 
@@ -35,13 +36,21 @@ struct BlurRegion {
     int top;
     int right;
     int bottom;
+    bool hasPath = false;
+    uint32_t pathFillType = 0;
+    float pathBaseWidth = 0;
+    float pathBaseHeight = 0;
+    // PathIterator verbs and point data, in drawable-local coordinates.
+    std::vector<float> pathData;
 
     inline bool operator==(const BlurRegion& other) const {
         return blurRadius == other.blurRadius && cornerRadiusTL == other.cornerRadiusTL &&
                 cornerRadiusTR == other.cornerRadiusTR && cornerRadiusBL == other.cornerRadiusBL &&
                 cornerRadiusBR == other.cornerRadiusBR && alpha == other.alpha &&
                 left == other.left && top == other.top && right == other.right &&
-                bottom == other.bottom;
+                bottom == other.bottom && hasPath == other.hasPath &&
+                pathFillType == other.pathFillType && pathBaseWidth == other.pathBaseWidth &&
+                pathBaseHeight == other.pathBaseHeight && pathData == other.pathData;
     }
 
     inline bool operator!=(const BlurRegion& other) const { return !(*this == other); }
@@ -59,6 +68,10 @@ static inline void PrintTo(const BlurRegion& blurRegion, ::std::ostream* os) {
     *os << "\n    .top = " << blurRegion.top;
     *os << "\n    .right = " << blurRegion.right;
     *os << "\n    .bottom = " << blurRegion.bottom;
+    *os << "\n    .hasPath = " << blurRegion.hasPath;
+    *os << "\n    .pathBaseWidth = " << blurRegion.pathBaseWidth;
+    *os << "\n    .pathBaseHeight = " << blurRegion.pathBaseHeight;
+    *os << "\n    .pathData.size() = " << blurRegion.pathData.size();
     *os << "\n}";
 }
 
@@ -77,9 +90,15 @@ namespace std {
 template <>
 struct hash<android::BlurRegion> {
     size_t operator()(const android::BlurRegion& region) const {
-        return android::hashCombine(region.blurRadius, region.cornerRadiusTL, region.cornerRadiusTR,
-                                    region.cornerRadiusBL, region.cornerRadiusBR, region.alpha,
-                                    region.left, region.top, region.right, region.bottom);
+        size_t hash = android::hashCombine(
+                region.blurRadius, region.cornerRadiusTL, region.cornerRadiusTR,
+                region.cornerRadiusBL, region.cornerRadiusBR, region.alpha, region.left,
+                region.top, region.right, region.bottom, region.hasPath, region.pathFillType,
+                region.pathBaseWidth, region.pathBaseHeight, region.pathData.size());
+        for (float value : region.pathData) {
+            android::hashCombineSingle(hash, value);
+        }
+        return hash;
     }
 };
 } // namespace std
