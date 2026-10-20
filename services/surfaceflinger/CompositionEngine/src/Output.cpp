@@ -805,7 +805,14 @@ void Output::ensureOutputLayerIfVisible(sp<compositionengine::LayerFE>& layerFE,
 
     // See b/399120953: blurs are so expensive that they may be susceptible to compression side
     // channel attacks
-    static constexpr auto kMaxBlurRequests = 10;
+    //
+    // Raised from 10. Every blur region counts as its own request, and the launcher's themed icon
+    // backdrop registers one region per visible icon, so an ordinary home screen page crosses 10
+    // on its own. When it does, ignoreBlur switches blur off for the whole layer -- icons, the
+    // long-press menu and the app drawer all at once. 64 covers a full page, the hotseat, popups
+    // and the shade with headroom. This knowingly weakens the side-channel mitigation above; it
+    // was a deliberate choice for this personal build, not an oversight.
+    static constexpr auto kMaxBlurRequests = 64;
     outputLayerState.ignoreBlur = coverage.aboveBlurRequests > kMaxBlurRequests;
     if (CC_UNLIKELY(computeAboveCoveredExcludingOverlays)) {
         outputLayerState.coveredRegionExcludingDisplayOverlays =
